@@ -1,0 +1,79 @@
+[project]
+name = "waidrop-cli"
+version = "1.0.0"
+description = "Query encrypted WAiDrop archives in Dropbox by name/number and time window"
+readme = "README.md"
+license = "Apache-2.0"
+license-files = ["LICENSE", "NOTICE"]
+authors = [{ name = "Tomasz Habiger", email = "tomasz.habiger@gmail.com" }]
+requires-python = ">=3.10"
+keywords = ["whatsapp", "archive", "dropbox", "cli", "backup", "privacy"]
+classifiers = [
+    "Development Status :: 5 - Production/Stable",
+    "Environment :: Console",
+    "Intended Audience :: End Users/Desktop",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Programming Language :: Python :: 3.15",
+    "Topic :: Communications :: Chat",
+    "Topic :: System :: Archiving :: Backup",
+]
+dependencies = [
+    "cryptography>=42",
+    "tzdata>=2025.2; sys_platform == 'win32'",
+]
+
+[project.optional-dependencies]
+mcp = ["mcp>=2.3,<3"]
+
+[project.scripts]
+waidrop = "waidrop_cli.cli:main"
+waidrop-mcp = "waidrop_cli.mcp_server:main"
+
+[project.urls]
+Homepage = "https://github.com/thabiger/waidrop-cli"
+Repository = "https://github.com/thabiger/waidrop-cli"
+Issues = "https://github.com/thabiger/waidrop-cli/issues"
+Changelog = "https://github.com/thabiger/waidrop-cli/blob/main/CHANGELOG.md"
+
+[dependency-groups]
+dev = ["pytest>=8", "ruff>=0.9"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/waidrop_cli"]
+
+[tool.hatch.build.targets.sdist]
+exclude = [
+    ".venv",
+    "media",
+    "waidrop-media",
+    ".pytest_cache",
+    ".ruff_cache",
+    ".mypy_cache",
+    "**/__pycache__",
+    "**/*.pyc",
+    ".DS_Store",
+    "dist",
+    "build",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra"
+
+[tool.ruff]
+target-version = "py310"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+ignore = ["E501"]

@@ -1,0 +1,584 @@
+"""End-to-end CLI behaviour against the fake Dropbox archive."""
+
+from __future__ import annotations
+
+import json
+import os
+
+import pytest
+from conftest import ACCOUNT, APP_KEY, KEY, REFRESH_TOKEN, TOKEN, seed_archive
+
+from waidrop_cli import __version__
+from waidrop_cli.auth import Credentials, save_credentials
+from waidrop_cli.cli import main
+from waidrop_cli.crypto import chat_hash, derive_keys
+
+
+def _configure(monkeypatch, api, token=TOKEN, key=KEY):
+    monkeypatch.setenv("WAIDROP_DROPBOX_TOKEN", token)
+    monkeypatch.setenv("WAIDROP_KEY", key)
+    monkeypatch.setenv("WAIDROP_ACCOUNT", ACCOUNT)
+    monkeypatch.setenv("WAIDROP_TEST_DROPBOX_BASE", api.endpoint)
+
+
+def _query(*extra, tz="UTC"):
+    return main(["query", "--tz", tz, "--quiet", *extra])
+
+
+def _context(*extra, tz="UTC"):
+    return main(["context", "--tz", tz, "--quiet", *extra])
+
+
+def test_query_ndjson_by_name(seeded, monkeypatch, capsys):
+    _configure(monkeypatch, seeded)
+    code = _query("--name", "*Anna*", "--from", "2026-10-16", "--to", "2026-10-17")
+
+    assert code == 0
+    lines = capsys.readouterr().out.strip().splitlines()
+    records = [json.loads(line) for line in lines]
+    assert [record["msgId"] for record in records] == ["A1", "A2"]
+    assert records[1]["text"] == "repaired copy"
+
+
+def test_query_by_number(seeded, monkeypatch, capsys):
+    _configure(monkeypatch, seeded)
+    code = _query("--number", "+49 171 234567", "--from", "2026-10-17", "--to", "2026-10-17")
+
+    assert code == 0
+    records = [json.loads(line) for line in capsys.readouterr().out.strip().splitlines()]
+    assert [record["msgId"] for record in records] == ["A2"]
+
+
+def test_query_csv_escapes(seeded, monkeypatch, capsys):
+    _configure(monkeypatch, seeded)
+    code = _query(
+        "--name", "Family*", "--from", "2026-10-17", "--to", "2026-10-17", "--format", "csv"
+    )
+
+    assert code == 0
+    lines = capsys.readouterr().out.strip().splitlines()
+    assert lines[0].startswith("msgId,ts,chatName")
+    assert len(lines) == 2
+    assert '"Hi, family"' in lines[1]
+
+
+def test_query_text_format(seeded, monkeypatch, capsys):
+    _configure(monkeypatch, seeded)
+    code = _query(
+        "--name", "*Bob*", "--from", "2026-10-17", "--to", "2026-10-17", "--format", "text"
+    )
+
+    assert code == 0
+    output = capsys.readouterr().out
+    assert "Bob LID / Bob: lid message" in output
+    assert "←" in output
+
+
+def test_query_to_file(seeded, monkeypatch, capsys, tmp_path):
+    _configure(monkeypatch, seeded)
+    target = tmp_path / "anna.ndjson"
+    code = _query(
+        "--name", "*Anna*", "--from", "2026-10-17", "--to", "2026-10-17", "--out", str(target)
+    )
+
+    assert code == 0
+    assert capsys.readouterr().out == ""
+    lines = target.read_text(encoding="utf-8").strip().splitlines()
+    assert len(lines) == 1
+    assert json.loads(lines[0])["msgId"] == "A2"
+
+
+def test_query_last_is_accepted(seeded, monkeypatch, capsys):
+    _configure(monkeypatch, seeded)
+    code = _query("--name", "*Anna*", "--last", "800w")
+
+    assert code == 0
+    assert capsys.readouterr().out.strip()
+
+
+def test_chats_command_lists_everything(seeded, monkeypatch, capsys):
+    _configure(monkeypatch, seeded)
+    code = main(["chats", "--quiet"])
+
+    assert code == 0
+    output = capsys.readouterr().out
+    assert "Anna Schmidt" in output
+    assert "Bob LID" in output
+    assert "Family Group" in output
+
+
+def test_chats_command_filtered(seeded, monkeypatch, capsys):
+    _configure(monkeypatch, seeded)
+    code = main(["chats", "--name", "*Anna*", "--quiet"])
+
+    assert code == 0
+    output = capsys.readouterr().out
+    assert "Anna Schmidt" in output
+    assert "Bob LID" not in output
+
+
+def test_chats_command_unknown_jid(seeded, monkeypatch, capsys):
+    _configure(monkeypatch, seeded)
+
+    code = main(["chats", "--jid", "49111111111@c.us", "--quiet"])
+
+    assert code == 0
+    hash_key, _ = derive_keys(KEY)
+    assert chat_hash(hash_key, "49111111111@c.us") in capsys.readouterr().out
+
+
+def test_no_matches_exit_code(seeded, monkeypatch, capsys):
+    _configure(monkeypatch, seeded)
+    code = _query("--name", "zzz*", "--from", "2026-10-17", "--to", "2026-10-17")
+
+    assert code == 3
+    assert "no chats matched" in capsys.readouterr().err
+
+
+def test_usage_error_without_window(seeded, monkeypatch, capsys):
+    _configure(monkeypatch, seeded)
+    code = _query("--name", "*Anna*")
+
+    assert code == 2
+    assert "--from or --last" in capsys.readouterr().err
+
+
+def test_usage_error_last_with_from(seeded, monkeypatch):
+    _configure(monkeypatch, seeded)
+    code = _query("--name", "*Anna*", "--from", "2026-10-01", "--last", "7d")
+
+    assert code == 2
+
+
+def test_guard_exit_code(seeded, monkeypatch):
+    _configure(monkeypatch, seeded)
+    code = main(
+        [
+            "query",
+            "--name",
+            "*Anna*",
+            "--from",
+            "2026-10-16",
+            "--to",
+            "2026-10-17",
+            "--tz",
+            "UTC",
+            "--max-parts",
+            "1",
+            "--quiet",
+        ]
+    )
+
+    assert code == 4
+
+
+def test_empty_window_exit_code(seeded, monkeypatch):
+    _configure(monkeypatch, seeded)
+    code = _query("--name", "*Anna*", "--from", "2020-01-01", "--to", "2020-01-02")
+
+    assert code == 3
+
+
+def test_all_messages_within_broad_window(seeded, monkeypatch, capsys):
+    _configure(monkeypatch, seeded)
+    code = _query("--name", "*", "--from", "2026-10-16", "--to", "2026-10-17")
+
+    assert code == 0
+    records = [json.loads(line) for line in capsys.readouterr().out.strip().splitlines()]
+    assert {record["msgId"] for record in records} == {"A1", "A2", "L1", "G1"}
+
+
+def test_invalid_token(seeded, monkeypatch):
+    _configure(monkeypatch, seeded, token="wrong-token")
+    code = main(["chats", "--quiet"])
+
+    assert code == 5
+
+
+def test_missing_encryption_key(seeded, monkeypatch, capsys):
+    monkeypatch.setenv("WAIDROP_DROPBOX_TOKEN", TOKEN)
+    monkeypatch.setenv("WAIDROP_TEST_DROPBOX_BASE", seeded.endpoint)
+    monkeypatch.delenv("WAIDROP_KEY", raising=False)
+
+    code = main(["chats", "--quiet"])
+
+    assert code == 2
+    assert "encryption key required" in capsys.readouterr().err
+
+
+def test_wrong_encryption_key(seeded, monkeypatch):
+    _configure(monkeypatch, seeded, key="BwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwc=")
+    code = main(["chats", "--quiet"])
+
+    assert code == 5
+
+
+def test_plaintext_archive_is_rejected(api, monkeypatch, capsys):
+    seed_archive(api)
+    api.files[f"/account={ACCOUNT}/_format.json"] = json.dumps(
+        {"format": 4, "layout": "waidrop", "mode": "plaintext"}
+    ).encode()
+    _configure(monkeypatch, api)
+
+    code = main(["chats", "--quiet"])
+
+    assert code == 5
+    assert "plaintext archives are no longer supported" in capsys.readouterr().err
+
+
+def test_archive_without_format_marker_is_rejected(api, monkeypatch, capsys):
+    seed_archive(api, format_marker=False)
+    _configure(monkeypatch, api)
+    code = _query("--name", "*Anna*", "--from", "2026-10-17", "--to", "2026-10-17")
+
+    assert code == 5
+    assert "archive format marker is missing" in capsys.readouterr().err
+
+
+def test_query_all_chats_without_selectors(seeded, monkeypatch, capsys):
+    _configure(monkeypatch, seeded)
+    code = _query("--from", "2026-10-16", "--to", "2026-10-17")
+
+    assert code == 0
+    records = [json.loads(line) for line in capsys.readouterr().out.strip().splitlines()]
+    assert {record["msgId"] for record in records} == {"A1", "A2", "L1", "G1"}
+    assert next(record for record in records if record["msgId"] == "A2")["text"] == "repaired copy"
+
+
+def test_query_all_chats_empty_window(seeded, monkeypatch):
+    _configure(monkeypatch, seeded)
+    code = _query("--from", "2020-01-01", "--to", "2020-01-02")
+
+    assert code == 3
+
+
+def test_midnight_window_downloads_only_overlapping_parts(seeded, monkeypatch, capsys):
+    _configure(monkeypatch, seeded)
+    code = _query(
+        "--name",
+        "*Anna*",
+        "--from",
+        "2026-10-16 23:30",
+        "--to",
+        "2026-10-17 00:30",
+    )
+
+    assert code == 0
+    records = [json.loads(line) for line in capsys.readouterr().out.strip().splitlines()]
+    assert [record["msgId"] for record in records] == ["A1"]
+    part_downloads = [key for key in seeded.download_calls if "/chat=" in key]
+    assert len(part_downloads) == 1, part_downloads
+
+
+def test_context_groups_by_chat(seeded, monkeypatch, capsys):
+    _configure(monkeypatch, seeded)
+    code = _context("--from", "2026-10-16", "--to", "2026-10-17")
+
+    assert code == 0
+    chunks = [json.loads(line) for line in capsys.readouterr().out.strip().splitlines()]
+    assert {chunk["chat"]["name"] for chunk in chunks} == {
+        "Anna Schmidt",
+        "Bob LID",
+        "Family Group",
+    }
+    assert all(chunk["parts"] == 1 for chunk in chunks)
+    anna = next(chunk for chunk in chunks if chunk["chat"]["name"] == "Anna Schmidt")
+    assert [message["msgId"] for message in anna["messages"]] == ["A1", "A2"]
+    assert all(message["inWindow"] for message in anna["messages"])
+    assert anna["contextBeforeMs"] == 0
+
+
+def test_context_default_omits_pre_window_messages(seeded, monkeypatch, capsys):
+    _configure(monkeypatch, seeded)
+    code = _context("--name", "*Anna*", "--from", "2026-10-17", "--to", "2026-10-17")
+
+    assert code == 0
+    chunks = [json.loads(line) for line in capsys.readouterr().out.strip().splitlines()]
+    assert len(chunks) == 1
+    assert [message["msgId"] for message in chunks[0]["messages"]] == ["A2"]
+    assert chunks[0]["contextBeforeMs"] == 0
+
+
+def test_context_before_includes_pre_window_messages(seeded, monkeypatch, capsys):
+    _configure(monkeypatch, seeded)
+    code = _context(
+        "--name",
+        "*Anna*",
+        "--from",
+        "2026-10-17",
+        "--to",
+        "2026-10-17",
+        "--context-before",
+        "1d",
+    )
+
+    assert code == 0
+    chunks = [json.loads(line) for line in capsys.readouterr().out.strip().splitlines()]
+    assert len(chunks) == 1
+    assert [message["msgId"] for message in chunks[0]["messages"]] == ["A1", "A2"]
+    assert [message["inWindow"] for message in chunks[0]["messages"]] == [False, True]
+    assert chunks[0]["contextBeforeMs"] == 86_400_000
+
+
+def test_context_only_window_exits_3(seeded, monkeypatch, capsys):
+    _configure(monkeypatch, seeded)
+    code = _context(
+        "--name",
+        "*Anna*",
+        "--from",
+        "2026-10-17 00:00",
+        "--to",
+        "2026-10-17 00:01",
+        "--context-before",
+        "1d",
+    )
+
+    assert code == 3
+    assert "analysis window" in capsys.readouterr().err
+
+
+def test_context_text_format(seeded, monkeypatch, capsys):
+    _configure(monkeypatch, seeded)
+    code = _context(
+        "--name",
+        "*Anna*",
+        "--from",
+        "2026-10-17",
+        "--to",
+        "2026-10-17",
+        "--context-before",
+        "1d",
+        "--format",
+        "text",
+    )
+
+    assert code == 0
+    output = capsys.readouterr().out
+    assert "=== CHAT" in output
+    assert "Anna Schmidt" in output
+    assert "[context]" in output
+    assert "late message" in output
+    assert "repaired copy" in output
+    assert "=== END CHAT (1/1) ===" in output
+
+
+def test_context_max_chars_splits_at_message_boundaries(seeded, monkeypatch, capsys):
+    _configure(monkeypatch, seeded)
+    code = _context(
+        "--name",
+        "*Anna*",
+        "--from",
+        "2026-10-16",
+        "--to",
+        "2026-10-17",
+        "--max-chars",
+        "60",
+    )
+
+    assert code == 0
+    chunks = [json.loads(line) for line in capsys.readouterr().out.strip().splitlines()]
+    assert [chunk["part"] for chunk in chunks] == [1, 2]
+    assert all(chunk["parts"] == 2 for chunk in chunks)
+    assert all(chunk["oversized"] is False for chunk in chunks)
+    assert [message["msgId"] for chunk in chunks for message in chunk["messages"]] == ["A1", "A2"]
+
+
+def test_context_to_file(seeded, monkeypatch, capsys, tmp_path):
+    _configure(monkeypatch, seeded)
+    target = tmp_path / "context.ndjson"
+    code = _context(
+        "--name",
+        "*Anna*",
+        "--from",
+        "2026-10-17",
+        "--to",
+        "2026-10-17",
+        "--out",
+        str(target),
+    )
+
+    assert code == 0
+    assert capsys.readouterr().out == ""
+    chunks = [json.loads(line) for line in target.read_text(encoding="utf-8").strip().splitlines()]
+    assert len(chunks) == 1
+    assert chunks[0]["messages"][0]["msgId"] == "A2"
+
+
+def test_context_negative_max_chars(seeded, monkeypatch, capsys):
+    _configure(monkeypatch, seeded)
+    code = _context(
+        "--name",
+        "*Anna*",
+        "--from",
+        "2026-10-17",
+        "--to",
+        "2026-10-17",
+        "--max-chars",
+        "-1",
+    )
+
+    assert code == 2
+    assert "--max-chars" in capsys.readouterr().err
+
+
+def test_context_no_chats_matched(seeded, monkeypatch, capsys):
+    _configure(monkeypatch, seeded)
+    code = _context("--name", "zzz*", "--from", "2026-10-17", "--to", "2026-10-17")
+
+    assert code == 3
+    assert "no chats matched" in capsys.readouterr().err
+
+
+def test_context_requires_window(seeded, monkeypatch, capsys):
+    _configure(monkeypatch, seeded)
+    code = _context("--name", "*Anna*")
+
+    assert code == 2
+    assert "--from or --last" in capsys.readouterr().err
+
+
+def test_context_last_is_accepted(seeded, monkeypatch, capsys):
+    _configure(monkeypatch, seeded)
+    code = _context("--name", "*Anna*", "--last", "800w")
+
+    assert code == 0
+    assert capsys.readouterr().out.strip()
+
+
+def test_version(capsys):
+    with pytest.raises(SystemExit) as error:
+        main(["--version"])
+
+    assert error.value.code == 0
+    assert __version__ in capsys.readouterr().out
+
+
+def _auth_credentials(tmp_path):
+    path = tmp_path / "creds.json"
+    save_credentials(
+        path,
+        Credentials(
+            app_key=APP_KEY,
+            refresh_token=REFRESH_TOKEN,
+            access_token=TOKEN,
+        ),
+    )
+    return path
+
+
+def _configure_auth(monkeypatch, api, path):
+    monkeypatch.delenv("WAIDROP_DROPBOX_TOKEN", raising=False)
+    monkeypatch.delenv("WAIDROP_DROPBOX_REFRESH_TOKEN", raising=False)
+    monkeypatch.setenv("WAIDROP_CREDENTIALS", str(path))
+    monkeypatch.setenv("WAIDROP_TEST_DROPBOX_BASE", api.endpoint)
+
+
+def test_revoke_keeps_credentials_on_remote_error(seeded, monkeypatch, tmp_path, capsys):
+    path = _auth_credentials(tmp_path)
+    _configure_auth(monkeypatch, seeded, path)
+    seeded.override = (500, {"error": "boom"})
+
+    code = main(["auth", "--revoke"])
+
+    assert code == 5
+    assert path.exists()
+    assert "could not revoke" in capsys.readouterr().err
+
+
+def test_revoke_deletes_credentials_on_success(seeded, monkeypatch, tmp_path, capsys):
+    path = _auth_credentials(tmp_path)
+    _configure_auth(monkeypatch, seeded, path)
+
+    code = main(["auth", "--revoke"])
+
+    assert code == 0
+    assert not path.exists()
+    assert "revoked Dropbox access" in capsys.readouterr().out
+
+
+def test_revoke_deletes_credentials_when_token_already_invalid(
+    seeded, monkeypatch, tmp_path, capsys
+):
+    path = _auth_credentials(tmp_path)
+    _configure_auth(monkeypatch, seeded, path)
+    seeded.override = (401, {"error": "invalid_access_token"})
+
+    code = main(["auth", "--revoke"])
+
+    assert code == 0
+    assert not path.exists()
+    assert "already invalid" in capsys.readouterr().err
+
+
+WRONG_KEY = "BwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwc="
+
+
+def _use_env_file(monkeypatch, tmp_path, text):
+    monkeypatch.delenv("WAIDROP_KEY", raising=False)
+    monkeypatch.delenv("WAIDROP_ACCOUNT", raising=False)
+    monkeypatch.setenv("WAIDROP_CREDENTIALS", str(tmp_path / "credentials.json"))
+    path = tmp_path / "env"
+    path.write_text(text, encoding="utf-8")
+    path.chmod(0o600)
+    return path
+
+
+def test_env_file_supplies_key_and_account(seeded, monkeypatch, tmp_path):
+    monkeypatch.setenv("WAIDROP_DROPBOX_TOKEN", TOKEN)
+    monkeypatch.setenv("WAIDROP_TEST_DROPBOX_BASE", seeded.endpoint)
+    _use_env_file(
+        monkeypatch,
+        tmp_path,
+        f"WAIDROP_KEY={KEY}\nWAIDROP_ACCOUNT={ACCOUNT}\n",
+    )
+
+    assert main(["chats", "--quiet"]) == 0
+
+
+def test_shell_environment_wins_over_env_file(seeded, monkeypatch, tmp_path):
+    _use_env_file(
+        monkeypatch,
+        tmp_path,
+        f"WAIDROP_KEY={WRONG_KEY}\nWAIDROP_ACCOUNT=missing\n",
+    )
+    _configure(monkeypatch, seeded)
+
+    assert main(["chats", "--quiet"]) == 0
+
+
+def test_flags_win_over_env_file(seeded, monkeypatch, tmp_path):
+    monkeypatch.setenv("WAIDROP_DROPBOX_TOKEN", TOKEN)
+    monkeypatch.setenv("WAIDROP_TEST_DROPBOX_BASE", seeded.endpoint)
+    _use_env_file(
+        monkeypatch,
+        tmp_path,
+        f"WAIDROP_KEY={WRONG_KEY}\nWAIDROP_ACCOUNT=missing\n",
+    )
+
+    assert main(["chats", "--quiet", "--key", KEY, "--account", ACCOUNT]) == 0
+
+
+def test_env_file_follows_credentials_file(seeded, monkeypatch, tmp_path):
+    credentials = tmp_path / "custom" / "credentials.json"
+    env_file = credentials.parent / "env"
+    env_file.parent.mkdir()
+    env_file.write_text(f"WAIDROP_KEY={KEY}\nWAIDROP_ACCOUNT={ACCOUNT}\n", encoding="utf-8")
+    env_file.chmod(0o600)
+    monkeypatch.delenv("WAIDROP_KEY", raising=False)
+    monkeypatch.delenv("WAIDROP_ACCOUNT", raising=False)
+    monkeypatch.delenv("WAIDROP_CREDENTIALS", raising=False)
+    monkeypatch.setenv("WAIDROP_DROPBOX_TOKEN", TOKEN)
+    monkeypatch.setenv("WAIDROP_TEST_DROPBOX_BASE", seeded.endpoint)
+
+    assert main(["chats", "--quiet", "--credentials-file", str(credentials)]) == 0
+
+
+@pytest.mark.skipif(os.name == "nt", reason="POSIX permissions")
+def test_insecure_env_file_is_rejected(seeded, monkeypatch, tmp_path, capsys):
+    monkeypatch.setenv("WAIDROP_DROPBOX_TOKEN", TOKEN)
+    monkeypatch.setenv("WAIDROP_TEST_DROPBOX_BASE", seeded.endpoint)
+    path = _use_env_file(monkeypatch, tmp_path, f"WAIDROP_KEY={KEY}\n")
+    path.chmod(0o644)
+
+    assert main(["chats", "--quiet"]) == 2
+    assert "must not be readable or writable" in capsys.readouterr().err
