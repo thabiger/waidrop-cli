@@ -2,7 +2,7 @@
 
 ## Supported versions
 
-Security fixes are provided for the latest `0.2.x` release. Pre-release or
+Security fixes are provided for the latest `1.x` release. Pre-release or
 unreleased development snapshots are not supported.
 
 ## Reporting a vulnerability
@@ -17,7 +17,7 @@ Use GitHub's private vulnerability reporting:
    steps.
 
 If private reporting is unavailable, contact the maintainer at
-`tomasz.habiger@gmail.com` with the subject line `waidrop-cli security`.
+`waidrop@tnkrd.com` with the subject line `waidrop-cli security`.
 
 Please do not include real chat content, archive keys, Dropbox tokens, or other
 personal data in a report. Use synthetic examples where possible.

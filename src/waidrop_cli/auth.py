@@ -14,6 +14,7 @@ import hashlib
 import json
 import os
 import secrets
+import stat
 import tempfile
 import time
 import urllib.error
@@ -22,7 +23,7 @@ import urllib.request
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from .errors import RemoteError
+from .errors import RemoteError, UsageError
 
 AUTHORIZE_URL = "https://www.dropbox.com/oauth2/authorize"
 DEFAULT_TOKEN_URL = "https://api.dropboxapi.com/oauth2/token"
@@ -260,6 +261,18 @@ def resolve_credentials_path(args) -> Path:
 
 
 def load_credentials(path) -> Credentials | None:
+    if os.name != "nt":
+        try:
+            mode = stat.S_IMODE(os.stat(path).st_mode)
+        except FileNotFoundError:
+            return None
+        except OSError:
+            return None
+        if mode & 0o077:
+            raise UsageError(
+                f"credentials file {path} must not be readable or writable by "
+                f"group/others; run `chmod 600 {path}`"
+            )
     try:
         with open(path, encoding="utf-8") as handle:
             data = json.load(handle)

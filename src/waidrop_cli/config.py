@@ -6,6 +6,7 @@ import os
 import re
 from dataclasses import dataclass
 from datetime import datetime, timedelta, tzinfo
+from urllib.parse import urlsplit
 from zoneinfo import ZoneInfo
 
 from .auth import (
@@ -88,15 +89,37 @@ class DropboxConfig:
         return f"{self.folder}/account={self.account}"
 
 
+LOOPBACK_HOSTS = {"127.0.0.1", "localhost", "::1"}
+
+
 def _dropbox_urls(base: str) -> dict:
-    if base:
-        return {
-            "api_base": f"{base}/2",
-            "content_base": f"{base}/2",
-            "token_url": f"{base}/oauth2/token",
-            "revoke_url": f"{base}/2/auth/token/revoke",
-        }
-    return {}
+    """Resolve the test endpoint override.
+
+    WAIDROP_TEST_DROPBOX_BASE redirects every Dropbox call, including the
+    OAuth token exchange and the bearer token, so a tampered environment must
+    not be able to point it at an arbitrary plaintext host. HTTPS is always
+    allowed; HTTP only for loopback test servers.
+    """
+    if not base:
+        return {}
+    parsed = urlsplit(base)
+    if parsed.scheme not in {"http", "https"} or not parsed.hostname:
+        raise UsageError("WAIDROP_TEST_DROPBOX_BASE must be an http(s) URL")
+    if parsed.scheme == "http" and parsed.hostname not in LOOPBACK_HOSTS:
+        raise UsageError(
+            "WAIDROP_TEST_DROPBOX_BASE must use https "
+            "(http is allowed only for loopback test servers)"
+        )
+    if parsed.username or parsed.password or parsed.query or parsed.fragment:
+        raise UsageError(
+            "WAIDROP_TEST_DROPBOX_BASE must not contain credentials, a query or a fragment"
+        )
+    return {
+        "api_base": f"{base}/2",
+        "content_base": f"{base}/2",
+        "token_url": f"{base}/oauth2/token",
+        "revoke_url": f"{base}/2/auth/token/revoke",
+    }
 
 
 def resolve_auth(args) -> AuthConfig:

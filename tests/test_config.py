@@ -191,6 +191,37 @@ def test_load_config_refresh_credentials(monkeypatch):
     assert cfg.folder == ""
 
 
+@pytest.mark.parametrize(
+    "base",
+    [
+        "ftp://example.com",
+        "http://example.com",
+        "https://user:secret@example.com",
+        "https://example.com/base?query=1",
+        "not-a-url",
+    ],
+)
+def test_test_endpoint_rejects_unsafe_bases(monkeypatch, base):
+    _env(
+        monkeypatch,
+        WAIDROP_DROPBOX_TOKEN="token-123",
+        WAIDROP_TEST_DROPBOX_BASE=base,
+    )
+    with pytest.raises(UsageError):
+        load_config(_Args())
+
+
+def test_test_endpoint_allows_loopback_http(monkeypatch):
+    _env(
+        monkeypatch,
+        WAIDROP_DROPBOX_TOKEN="token-123",
+        WAIDROP_TEST_DROPBOX_BASE="http://127.0.0.1:9999",
+    )
+    cfg = load_config(_Args())
+    assert cfg.api_base == "http://127.0.0.1:9999/2"
+    assert cfg.token_url == "http://127.0.0.1:9999/oauth2/token"
+
+
 def test_resolve_auth_prefers_credentials_app_key(monkeypatch, tmp_path):
     path = tmp_path / "creds.json"
     save_credentials(

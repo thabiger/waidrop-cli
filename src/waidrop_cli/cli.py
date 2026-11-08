@@ -81,13 +81,18 @@ def build_parser() -> argparse.ArgumentParser:
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     common = argparse.ArgumentParser(add_help=False)
-    common.add_argument("--dropbox-token", help="Dropbox access token (or WAIDROP_DROPBOX_TOKEN)")
     common.add_argument(
-        "--dropbox-refresh-token", help="Dropbox refresh token (or WAIDROP_DROPBOX_REFRESH_TOKEN)"
+        "--dropbox-token",
+        help="Dropbox access token (or WAIDROP_DROPBOX_TOKEN; env is safer, argv is visible to ps)",
+    )
+    common.add_argument(
+        "--dropbox-refresh-token",
+        help="Dropbox refresh token (or WAIDROP_DROPBOX_REFRESH_TOKEN; env is safer than argv)",
     )
     common.add_argument("--dropbox-app-key", help="Dropbox app key (or WAIDROP_DROPBOX_APP_KEY)")
     common.add_argument(
-        "--dropbox-app-secret", help="Dropbox app secret (or WAIDROP_DROPBOX_APP_SECRET)"
+        "--dropbox-app-secret",
+        help="Dropbox app secret (or WAIDROP_DROPBOX_APP_SECRET; env is safer than argv)",
     )
     common.add_argument(
         "--credentials-file", help="Dropbox credentials file (or WAIDROP_CREDENTIALS)"

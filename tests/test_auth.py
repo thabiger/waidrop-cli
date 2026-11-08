@@ -324,18 +324,21 @@ def test_load_credentials_missing_file(tmp_path):
 def test_load_credentials_bad_json(tmp_path):
     path = tmp_path / "creds.json"
     path.write_text("not json")
+    path.chmod(0o600)
     assert load_credentials(path) is None
 
 
 def test_load_credentials_wrong_version(tmp_path):
     path = tmp_path / "creds.json"
     path.write_text(json.dumps({"version": 999, "app_key": "k"}))
+    path.chmod(0o600)
     assert load_credentials(path) is None
 
 
 def test_load_credentials_missing_app_key(tmp_path):
     path = tmp_path / "creds.json"
     path.write_text(json.dumps({"version": CREDENTIALS_VERSION}))
+    path.chmod(0o600)
     assert load_credentials(path) is None
 
 
@@ -517,3 +520,12 @@ def test_loopback_rejects_bad_state_and_accepts_valid_state(api, monkeypatch):
     assert not thread.is_alive()
     assert "error" not in result
     assert result["value"]["access_token"] == api.refreshed_token
+
+
+@pytest.mark.skipif(os.name == "nt", reason="POSIX permissions")
+def test_load_credentials_rejects_group_readable_file(tmp_path):
+    path = tmp_path / "creds.json"
+    save_credentials(path, Credentials(app_key="k", refresh_token="r"))
+    path.chmod(0o644)
+    with pytest.raises(UsageError):
+        load_credentials(path)

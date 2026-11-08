@@ -574,6 +574,16 @@ def test_env_file_follows_credentials_file(seeded, monkeypatch, tmp_path):
 
 
 @pytest.mark.skipif(os.name == "nt", reason="POSIX permissions")
+def test_insecure_credentials_file_is_rejected(seeded, monkeypatch, tmp_path, capsys):
+    path = _auth_credentials(tmp_path)
+    _configure_auth(monkeypatch, seeded, path)
+    path.chmod(0o644)
+
+    assert main(["chats", "--quiet"]) == 2
+    assert "must not be readable or writable" in capsys.readouterr().err
+
+
+@pytest.mark.skipif(os.name == "nt", reason="POSIX permissions")
 def test_insecure_env_file_is_rejected(seeded, monkeypatch, tmp_path, capsys):
     monkeypatch.setenv("WAIDROP_DROPBOX_TOKEN", TOKEN)
     monkeypatch.setenv("WAIDROP_TEST_DROPBOX_BASE", seeded.endpoint)
