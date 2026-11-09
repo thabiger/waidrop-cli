@@ -38,7 +38,7 @@ REQUIRED_SCOPES = ("files.metadata.read", "files.content.read")
 
 # Set at release; must match the extension's DEFAULT_DROPBOX_APP_KEY. The app
 # key is a public client id and is safe to ship. Never ship a client secret.
-DEFAULT_APP_KEY = "ydtsl7okrf4xuee"
+DEFAULT_APP_KEY = "wqiz8ksk2f0jwmd"
 
 EXPIRY_SKEW_SECONDS = 60
 CREDENTIALS_VERSION = 1

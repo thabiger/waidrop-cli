@@ -5,6 +5,7 @@ useDefault = true
 description = "Public Dropbox client id and synthetic test fixtures"
 regexes = [
   '''ydtsl7okrf4xuee''',
+  '''wqiz8ksk2f0jwmd''',
 ]
 paths = [
   '''tests/.*''',

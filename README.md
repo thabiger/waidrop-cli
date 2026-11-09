@@ -102,7 +102,7 @@ command exits with code `5`.
 
 ### Custom Dropbox apps
 
-The built-in app key is `ydtsl7okrf4xuee`. To use your own app, create a
+The built-in app key is `wqiz8ksk2f0jwmd`. To use your own app, create a
 **Scoped access** app with **App folder** access in the
 [Dropbox App Console](https://www.dropbox.com/developers/apps), enable and
 submit these permissions:

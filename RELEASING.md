@@ -99,4 +99,4 @@ publishing and produce PyPI attestations.
 
 - Confirm GitHub secret scanning and Dependabot have no open alerts.
 - Confirm the companion extension build uses the same Dropbox app key as the
-  CLI (`ydtsl7okrf4xuee`).
+  CLI (`wqiz8ksk2f0jwmd`).

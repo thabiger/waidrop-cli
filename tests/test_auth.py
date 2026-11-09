@@ -472,7 +472,7 @@ def test_default_app_key_is_string():
 
 
 def test_default_app_key_matches_release():
-    assert DEFAULT_APP_KEY == "ydtsl7okrf4xuee"
+    assert DEFAULT_APP_KEY == "wqiz8ksk2f0jwmd"
 
 
 def test_loopback_rejects_bad_state_and_accepts_valid_state(api, monkeypatch):
