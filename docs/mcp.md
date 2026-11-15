@@ -2,7 +2,9 @@
 
 `waidrop-mcp` is an optional local
 [MCP](https://modelcontextprotocol.io/) stdio server that exposes the WAiDrop
-archive through two read-only tools:
+archive written by the
+[WAiDrop Chrome extension](https://chromewebstore.google.com/detail/waidrop-whatsapp-chat-arc/phmlbpolkcfhocjeginepmegoilljnkc)
+through two read-only tools:
 
 - `list_chats`
 - `get_context`
